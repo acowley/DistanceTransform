@@ -35,8 +35,8 @@ k33 :: Vector Float
 k33 = V.fromList [ a1, a0, a1
                  , a0,  0, a0
                  , a1, a0, a1 ]
-  where a0 = 1
-        a1 = sqrt 2
+  where a0 = -1
+        a1 = -sqrt 2
 
 k55 :: Vector Float
 k55 = V.fromList [ b2, b1, b0, b1, b2
@@ -44,10 +44,10 @@ k55 = V.fromList [ b2, b1, b0, b1, b2
                  , b0, a0,  0, a0, b0
                  , b1, a1, a0, a1, b1
                  , b2, b1, b0, b1, b2 ]
-  where a0 = 1
-        a1 = sqrt 2
-        b0 = 2
-        b1 = sqrt 5
+  where a0 = -1
+        a1 = -sqrt 2
+        b0 = -2
+        b1 = -sqrt 5
         b2 = 2 * a1
 
 -- This is k2 following from equation 12
@@ -60,6 +60,17 @@ k2_55 = V.fromList [ b2, b1, b0, b1, b2
   where b0 = 2
         b1 = sqrt 5
         b2 = 2 * sqrt 2
+
+-- In Shih, object pixels have value +∞ while background pixels have
+-- value 0.
+
+-- Given these kernels with positive distances. An erosion by the
+-- kernel is max{k(z)} for all z that are non-zero in the image.
+
+-- The point here is that k55 = min(k33, k2_55), and that
+-- decomposition into sums (note that min/max are here reversed from
+-- the paper) gives us f ⊖ k55 = max(f ⊖ k33, f ⊖ k2_55)
+
 
 -- From the initial Coq treatment of morphology
 -- Definition erosion (A:t) (B:t) :=
@@ -83,7 +94,6 @@ unsafeGetElementsAt4 (PointedImage c img _) =
 
 class GetElementsV (n :: D.Nat) where
   getElementsAtV :: (D.Vector v a, D.Dim v ~ n, Storable a) => PointedImage a -> v a
-  --getElementsAtV :: (D.Vector v a, D.Dim v ~ n) => Proxy n -> PointedImage a -> v a
 
 instance GetElementsV $(D.nat 2) where
   getElementsAtV :: forall a (v :: * -> *) . 
@@ -160,38 +170,11 @@ instance GetElements2D $(D.nat 4) where
           c' = moveDown c
           c'' = moveDown c'
 
-
--- instance RFunctor (PointedImage b) where
---   type Ctx (PointedImage b) a = (V.Storable a, Pixel a)
---   rfmap f (PointedImage c img g) = PointedImage c img (f . g)
-
 pointedPixel :: Pixel a => PointedImage a -> a
 pointedPixel (PointedImage c _ getPixel) = getPixel (coordi c)
 
 getPointedImage :: PointedImage a -> Image a
 getPointedImage (PointedImage _ img _) = img
-
-
-
--- getPointedImage :: V.Storable a => PointedImage b a -> Image a
--- getPointedImage (PointedImage _ (Image w h _) getPixel) = 
---   Image w h (V.unsafeCast v)
---   where v = V.generate (w*h) (\i -> getPixel . coordPos $ i2c w h i)
-
--- I don't have any variant of a 'Functor' constraint because I don't
--- know how I want to make Images at all functorial. I can make the
--- pixel lookup function functorial, but I then run into trouble with
--- the type parameter to the embedded 'Image' type constructor. The
--- point is, the bundled 'Image a' stays at type 'a' forever, while
--- the PointedImage can vary by composing functions with
--- 'getPixel'. The problem I then run into is where to keep the
--- 'Image' type parameter, especially given that I sometimes want to
--- pull the image out! Note that in RComonad, the backing Image in the
--- output PointedImage is at a different type than the backing Image
--- of the input PointedImage!
-
--- Really I want a Cobindable type class. We do not support cojoin
--- (aka duplicate).
 
 class RComonad w where
   type Ctx w a :: Constraint
@@ -261,14 +244,6 @@ test = do Right img <- fmap makeGray <$> readImage "DT1.png"
             getPointedImage $
             extend ((`quot` 2) . extract)
                    (imageOrigin img)
-
-
--- Given these kernels with positive distances. An erosion by the
--- kernel is max{k(z)} for all z that are non-zero in the image.
-
--- The point here is that k55 = min(k33, k2_55), and that
--- decomposition into sums (note that min/max are here reversed from
--- the paper) gives us f ⊖ k55 = max(f ⊖ k33, f ⊖ k2_55)
 
 
 -- Saturate an integer to a single byte.

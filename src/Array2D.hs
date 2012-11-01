@@ -1,13 +1,16 @@
-{-# LANGUAGE TypeFamilies, ConstraintKinds, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies, ConstraintKinds, ScopedTypeVariables, 
+             FlexibleContexts #-}
 module Array2D where
 import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as VB
 import qualified Data.Vector.Generic as G
 --import qualified Data.Vector.Storable as S
+import Data.AffineSpace
 import PointedArray
 import qualified UncheckedPointedArray as U
 import VectorAux
+import Extended
 
 data Array2D v a = Array2D { arrayWidth  :: Int
                            , arrayHeight :: Int
@@ -55,15 +58,27 @@ instance Cobindable (Array2D v) where
     where go c = (f $ pointedArrayAt d c, advance c)
           advance c = fromMaybe (moveDown c) (moveRightMaybe c)
 
+-- In Shih, background pixels are set to 0 and object pixels are +∞.
+isBackground :: (Eq a, Num a) => a -> Bool
+isBackground = (== 0)
+
 --erode :: (G.Vector v a, Num a) => Array2D v a -> Array2D v a -> Array2D v a
 erode :: forall t v a.
-         (Cobindable t, G.Vector v a, Num a, Ord a, Ctx t a) => 
+         (Cobindable t, G.Vector v a, G.Vector v (Extended a), 
+          Num a, Ord a, Ctx t a) => 
          t a -> Array2D v a -> t a
 erode img kernel@(Array2D w h d) = img =>> go
-  where go (PointedArray c g) = G.minimum $ unf ksz kgo (Coord 0 0 w h 0, c)
-        unf :: Int -> (b -> (a,b)) -> b -> v a
+  where go (PointedArray c g) = unextend 40 . G.minimum $ 
+                                unf ksz (kernelGo g) (kc0, c)
+        unf :: Int -> (b -> (Extended a,b)) -> b -> v (Extended a)
         unf = unfoldN
-        kgo (kc,c) = undefined
+        kernelGo :: (Coord -> a) -> (Coord,Coord) -> (Extended a, (Coord,Coord))
+        kernelGo getPixel (kc,c) = if isBackground (getPixel c)
+                                   then (Finite $ d G.! (coordi kc), advanceWith kc c)
+                                   else (PosInf, advanceWith kc c)
         advanceWith kc c = case moveRightMaybe kc of
-                             Nothing -> (carriage kc, carriage c)
+                             Nothing -> let kc' = carriage kc
+                                        in (kc', c .+^ (kc' .-. kc))
+                             Just kc' -> (kc', moveRight c)
         ksz = w*h
+        kc0 = Coord 0 0 w h 0

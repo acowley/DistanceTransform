@@ -1,12 +1,36 @@
+{-# LANGUAGE TypeFamilies, TemplateHaskell #-}
 module Coord where
+import Control.Lens.Setter ((+~))
+import Control.Lens.TH
 import Data.Maybe (fromMaybe)
+import Data.AdditiveGroup
+import Data.AffineSpace
+import Linear.V2 (V2(..))
+import qualified Linear.Vector as Linear
 
 -- |Index into a 2D structure that can be moved with bounds checking.
-data Coord = Coord { coordX      :: !Int
-                   , coordY      :: !Int
-                   , coordIndex  :: !Int
-                   , coordWidth  :: !Int
-                   , coordHeight :: !Int }
+data Coord = Coord { _coordX      :: !Int
+                   , _coordY      :: !Int
+                   , _coordIndex  :: !Int
+                   , _coordWidth  :: !Int
+                   , _coordHeight :: !Int }
+makeLenses ''Coord
+
+-- |The difference between two 'Coord's.
+newtype DiffCoord = DiffCoord { getDCoord :: V2 Int }
+
+coordV :: Coord -> V2 Int
+coordV c = V2 (_coordX c) (_coordY c)
+
+instance AdditiveGroup DiffCoord where
+  zeroV = DiffCoord 0
+  negateV (DiffCoord d) = DiffCoord $ Linear.gnegate d
+  DiffCoord d1 ^+^ DiffCoord d2 = DiffCoord $ d1 Linear.^+^ d2
+
+instance AffineSpace Coord where
+  type Diff Coord = DiffCoord
+  c1 .-. c2 = DiffCoord $ coordV c1 Linear.^-^ coordV c2
+  c .+^ DiffCoord (V2 x y) = (coordX +~ x) . (coordY +~ y) $ c
 
 -- |A linear index into a 2D structure, with no opportunity for row
 -- bounds checking.
@@ -69,6 +93,8 @@ moveRight = mayApply moveRightMaybe
 uncheckedRight :: StrideInt -> StrideInt
 uncheckedRight (StrideInt i w) = StrideInt (i+1) w
 
+-- |Carriage return: moves to the left-most column on the next row.
 carriage :: Coord -> Coord
 carriage (Coord _ y _ w h) = Coord 0 y' (y'*w) w h
   where y' = y + 1
+
