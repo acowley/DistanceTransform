@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 -- |3D Euclidean distance transform.
-module DistanceTransform.Euclidean3D (edt, Cube(..)) where
+module DistanceTransform.Euclidean3D (edt) where
 import Control.Applicative
 import Control.Monad (when)
 import Control.Monad.ST (ST)
@@ -8,8 +8,8 @@ import Data.Vector.Storable (Vector, (!))
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as VM
 import Linear.V3
-import Extended
-import STNum
+import DistanceTransform.Internal.Extended
+import DistanceTransform.Internal.STNum
 
 -- |3D extension of the two-pass 2D Euclidean distance transform from
 -- Shih and Wu, 2004.  The 3x3 neighborhood of each pixel, p, is
@@ -38,9 +38,10 @@ backward2D = [(x,y,0) | (x,y) <- [(1,0), (1,1), (0,1), (-1,1)]]
 -- |A 3D array with the same size in each dimension.
 data Cube a = Cube Int (Vector a)
 
--- |Compute a Euclidean distance transform of a 3D array.
-edt :: Cube Int -> Cube Float
-edt (Cube stride v) = Cube stride . V.map aux $ sedt stride v
+-- |Compute a Euclidean distance transform of a 3D array. The array is
+-- assumed to represent a cube with the given side length.
+edt :: Int -> Vector Int -> Vector Float
+edt stride v = V.map aux $ sedt stride v
   where aux :: Extended Int -> Float
         aux = sqrt . fromIntegral . min 80 . unextend 40
 
@@ -49,17 +50,19 @@ mutate v i f = VM.unsafeRead v i >>= VM.unsafeWrite v i . f
 
 data Direction = Forward | Backward deriving Eq
 
-edtPass :: Direction ->
+edtPass :: Direction -> 
            V.Vector (V3 Int) ->
-           (Int -> V3 Int -> Int) -> 
+           Int -> (Int -> V3 Int -> Int) -> 
            VM.STVector s (Extended Int) -> 
            VM.STVector s Int -> -- ^ Rx
            VM.STVector s Int -> -- ^ Ry
            VM.STVector s Int -> -- ^ Rz
            (Int -> V3 Int -> ST s Int) -> ST s ()
-edtPass dir ns pq f rx ry rz h = go start
-  where go !i 
-          | i == stop = return ()
+edtPass dir ns stride pq f rx ry rz h = go start innerStart innerStart
+  where go !i !xi !yi
+          | stop i = return ()
+          | yi == innerStop = go (step i (2*stride)) innerStart innerStart
+          | xi == innerStop = go (step i 2) innerStart (step yi 1)
           | otherwise = let aux q = (+) <$> VM.unsafeRead f (pq i q)
                                         <*> (Finite <$> h i q)
                             update = 
@@ -74,17 +77,92 @@ edtPass dir ns pq f rx ry rz h = go start
                                                     mutate rx i (+ dx)
                                                     mutate ry i (+ dy)
                                                     mutate rz i (+ dz)
-                        in update >> go (step i)
-        (start,stop,step) = let n = VM.length f
-                            in if dir == Forward
-                               then (0,n,(+1))
-                               else (n-1,-1, subtract 1)
+                        in update >> go (step i 1) (step xi 1) yi
+        (start,stop,innerStart,innerStop,step) = 
+          let n = VM.length f
+          in if dir == Forward
+             then (stride*stride+stride+1, (>= n - stride*stride),
+                   1, stride - 1, (+))
+             else (VM.length f - stride*stride - 2 - stride, (<= stride*stride),
+                   stride - 2, 0, (-))
+          
+        -- (start,stop,step) = let n = VM.length f
+        --                     in if dir == Forward
+        --                        then (stride*stride,n-stride*stride,(+1))
+        --                        else (n-stride*stride-1,stride*stride-1, subtract 1)
+
+-- edtForward and edtBackward leave a 1 pixel border on each side of
+-- the cube.
+
+edtForward :: Int -> (Int -> V3 Int -> Int) -> 
+              VM.STVector s (Extended Int) -> 
+              VM.STVector s Int -> -- ^ Rx
+              VM.STVector s Int -> -- ^ Ry
+              VM.STVector s Int -> -- ^ Rz
+              (Int -> V3 Int -> ST s Int) -> ST s ()
+edtForward stride pq f rx ry rz h = go (stride*stride+stride+1) 1 1
+  where go !i !xi !yi
+          | i >= stop = return ()
+          | yi == innerStop = go (step i (2*stride)) innerStart innerStart
+          | xi == innerStop = go (step i 2) innerStart (step yi 1)
+          | otherwise = let aux q = (+) <$> VM.unsafeRead f (pq i q)
+                                        <*> (Finite <$> h i q)
+                            update = 
+                              do old <- VM.unsafeRead f i
+                                 when (old /= 0) $
+                                      do qs <- V.mapM aux forwardN
+                                         let j = V.minIndex qs
+                                             new = qs ! j
+                                         when (new < old) $
+                                              let V3 dx dy dz = g $ forwardN ! j
+                                              in do VM.unsafeWrite f i new
+                                                    mutate rx i (+ dx)
+                                                    mutate ry i (+ dy)
+                                                    mutate rz i (+ dz)
+                        in update >> go (step i 1) (step xi 1) yi
+        stop = VM.length f - stride*stride
+        innerStop = stride - 1
+        innerStart = 1
+        step = (+)
+
+edtBackward :: Int -> (Int -> V3 Int -> Int) -> 
+               VM.STVector s (Extended Int) -> 
+               VM.STVector s Int -> -- ^ Rx
+               VM.STVector s Int -> -- ^ Ry
+               VM.STVector s Int -> -- ^ Rz
+               (Int -> V3 Int -> ST s Int) -> ST s ()
+edtBackward stride pq f rx ry rz h = go start (stride-2) (stride-2)
+  where go !i !xi !yi
+          | i <= stop = return ()
+          | yi == 0 = go (i-stride-stride) (stride-2) (stride-2)
+          | xi == 0 = go (i-2) (stride-2) (yi-1)
+          | otherwise = let aux q = (+) <$> VM.unsafeRead f (pq i q)
+                                        <*> (Finite <$> h i q)
+                            update = 
+                              do old <- VM.unsafeRead f i
+                                 when (old /= 0) $
+                                      do qs <- V.mapM aux forwardN
+                                         let j = V.minIndex qs
+                                             new = qs ! j
+                                         when (new < old) $
+                                              let V3 dx dy dz = g $ forwardN ! j
+                                              in do VM.unsafeWrite f i new
+                                                    mutate rx i (+ dx)
+                                                    mutate ry i (+ dy)
+                                                    mutate rz i (+ dz)
+                        in update >> go (i-1) (xi-1) yi
+        stop = stride*stride
+        start = VM.length f - stride*stride - 2 - stride
+
 
 g :: V3 Int -> V3 Int
 g = fmap abs
 
-forward, backward :: (Int -> V3 Int -> Int) -> VM.STVector s (Extended Int) ->
-                     VM.STVector s Int -> VM.STVector s Int -> VM.STVector s Int ->
+forward, backward :: Int -> (Int -> V3 Int -> Int) -> 
+                     VM.STVector s (Extended Int) ->
+                     VM.STVector s Int -> 
+                     VM.STVector s Int -> 
+                     VM.STVector s Int ->
                      (Int -> V3 Int -> ST s Int) -> ST s ()
 forward = edtPass Forward forwardN
 backward = edtPass Backward backwardN
@@ -99,7 +177,7 @@ sedt stride img = V.create $
                      rzv <- VM.replicate (stride*strideSq) (0::Int)
                      let rx i = STNum (VM.unsafeRead rxv i)
                          ry i = STNum (VM.unsafeRead ryv i)
-                         rz i = STNum (VM.unsafeRead ryv i)
+                         rz i = STNum (VM.unsafeRead rzv i)
                      let h i (V3 1 0 0) = stnum $ 2 * rx (i+1) + 1
                          h i (V3 _ 0 0) = stnum $ 2 * rx (i-1) + 1
                          h i (V3 0 1 0) = stnum $ 2 * ry (i+stride) + 1
@@ -114,8 +192,10 @@ sedt stride img = V.create $
                                             in stnum $ 2 * (rx j + ry j + 1)
                          h i q = let j = pq i q
                                  in stnum $ 2 * (rx j + ry j + rz j) + 3
-                     forward pq v rxv ryv rzv h
-                     backward pq v rxv ryv rzv h 
+                     forward stride pq v rxv ryv rzv h
+                     backward stride pq v rxv ryv rzv h 
+                     -- edtForward stride pq v rxv ryv rzv h
+                     -- edtBackward stride pq v rxv ryv rzv h 
                      return v
   where -- Compute image index of a neighbor
         pq :: Int -> V3 Int -> Int

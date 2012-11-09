@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, FlexibleInstances, OverlappingInstances #-}
-module Extended (Extended(..), unextend) where
+module DistanceTransform.Internal.Extended (Extended(..), unextend) where
 import Data.Bits
 import Data.Word (Word8)
 import Foreign.Ptr (castPtr)

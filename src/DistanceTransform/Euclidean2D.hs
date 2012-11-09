@@ -12,8 +12,8 @@ import Data.Word (Word8)
 import Foreign.Ptr (castPtr)
 import Foreign.Storable
 import Linear.V2
-import Extended
-import STNum
+import DistanceTransform.Internal.Extended
+import DistanceTransform.Internal.STNum
 
 data Neighbor = Q1 | Q2 | Q3 | Q4 | Q5 | Q6 | Q7 | Q8 deriving (Eq,Show,Enum,Ord)
 
