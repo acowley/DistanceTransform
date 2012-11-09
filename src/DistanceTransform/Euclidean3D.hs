@@ -50,6 +50,50 @@ mutate v i f = VM.unsafeRead v i >>= VM.unsafeWrite v i . f
 
 data Direction = Forward | Backward deriving Eq
 
+-- The default pass is +Z+Y+X / -Z-Y-X
+-- I think I need a pass to go +X+Y+Z / -X-Y-Z
+-- And perhaps one that goes +Y+Z+X / -Y-Z-X
+
+-- The point is the first alternate has neighbors left++band /
+-- right++band where the band is on the YZ plane. The second has
+-- neighbors top++band/bottom++band where the band is on the XZ plane.
+edtPass2 :: Direction -> 
+            V.Vector (V3 Int) ->
+            Int -> (Int -> V3 Int -> Int) -> 
+            VM.STVector s (Extended Int) -> 
+            VM.STVector s Int -> -- ^ Rx
+            VM.STVector s Int -> -- ^ Ry
+            VM.STVector s Int -> -- ^ Rz
+            (Int -> V3 Int -> ST s Int) -> ST s ()
+edtPass2 dir ns stride pq f rx ry rz h = go start innerStart innerStart
+  where go !i !xi !yi
+          | stop i = return ()
+          | yi == innerStop = go (step i (2*stride)) innerStart innerStart
+          | xi == innerStop = go (step i 2) innerStart (step yi 1)
+          | otherwise = let aux q = (+) <$> VM.unsafeRead f (pq i q)
+                                        <*> (Finite <$> h i q)
+                            update = 
+                              do old <- VM.unsafeRead f i
+                                 when (old /= 0) $
+                                      do qs <- V.mapM aux ns
+                                         let j = V.minIndex qs
+                                             new = qs ! j
+                                         when (new < old) $
+                                              let V3 dx dy dz = g $ ns ! j
+                                              in do VM.unsafeWrite f i new
+                                                    mutate rx i (+ dx)
+                                                    mutate ry i (+ dy)
+                                                    mutate rz i (+ dz)
+                        in update >> go (step i 1) (step xi 1) yi
+        (start,stop,innerStart,innerStop,step) = 
+          let n = VM.length f
+          in if dir == Forward
+             then (stride*stride+stride+1, (>= n - stride*stride),
+                   1, stride - 1, (+))
+             else (VM.length f - stride*stride - 2 - stride, (<= stride*stride),
+                   stride - 2, 0, (-))
+
+-- This pass can go +Z+Y+X or -Z-Y-X
 edtPass :: Direction -> 
            V.Vector (V3 Int) ->
            Int -> (Int -> V3 Int -> Int) -> 
@@ -85,11 +129,6 @@ edtPass dir ns stride pq f rx ry rz h = go start innerStart innerStart
                    1, stride - 1, (+))
              else (VM.length f - stride*stride - 2 - stride, (<= stride*stride),
                    stride - 2, 0, (-))
-          
-        -- (start,stop,step) = let n = VM.length f
-        --                     in if dir == Forward
-        --                        then (stride*stride,n-stride*stride,(+1))
-        --                        else (n-stride*stride-1,stride*stride-1, subtract 1)
 
 -- edtForward and edtBackward leave a 1 pixel border on each side of
 -- the cube.
