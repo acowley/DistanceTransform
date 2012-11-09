@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 -- |2D Euclidean distance transform.
-module EuclideanDT (edt) where
+module DistanceTransform.Euclidean2D (edt) where
 import Codec.Picture
 import Control.Applicative
 import Control.Monad (when)

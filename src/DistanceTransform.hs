@@ -15,7 +15,7 @@ import VectorAux
 import Coord
 import PointedImage
 import Decomposition
-import EuclideanDT (edt)
+import DistanceTransform.Euclidean2D (edt)
 
 makeGray :: DynamicImage -> Image Pixel8
 makeGray (ImageY8 img) = img
