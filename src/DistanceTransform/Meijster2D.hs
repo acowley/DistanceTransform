@@ -15,9 +15,9 @@ rowsM m n cs f = mapM_ aux [0..n-1]
 
 -- Function @f@ will be applied sequentially down each column using
 -- the given row indices.
-colsM :: Monad m => Int -> Int -> [Int] -> (Int -> m ()) -> m ()
-colsM m n rs f = mapM_ aux [0..m-1]
-  where aux c = mapM_ f $ map ((c +) . (m*)) rs -- [c,c+m .. m*(n-1)+c]
+colsM :: Monad m => Int -> [Int] -> (Int -> m ()) -> m ()
+colsM m rs f = mapM_ aux [0..m-1]
+  where aux c = mapM_ f $ map ((c +) . (m*)) rs
 
 -- Allocate a mutable vector, return the vector along with read and
 -- write functions.
@@ -38,8 +38,8 @@ prepareG m n p = V.create $
                                       when (below < curr)
                                            (vwrite i $! below + 1)
                     mapM_ (\i -> vwrite i $ if p!i == 0 then 0 else m+n) [0..m-1]
-                    colsM m n [1..n-1] pullDown
-                    colsM m n [n-2,n-3..0] pushUp
+                    colsM m [1..n-1] pullDown
+                    colsM m [n-2,n-3..0] pushUp
                     return v
 
 iterateWhileM :: Monad m => (a -> m (Maybe a)) -> a -> m a
