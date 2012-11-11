@@ -19,6 +19,8 @@ colsM :: Monad m => Int -> Int -> [Int] -> (Int -> m ()) -> m ()
 colsM m n rs f = mapM_ aux [0..m-1]
   where aux c = mapM_ f $ map ((c +) . (m*)) rs -- [c,c+m .. m*(n-1)+c]
 
+-- Allocate a mutable vector, return the vector along with read and
+-- write functions.
 newRW :: PrimMonad m => Int -> 
          m (VM.MVector (PrimState m) Int, Int -> m Int, Int -> Int -> m ())
 newRW n = do { v <- VM.new n; return (v, VM.unsafeRead v, VM.unsafeWrite v) }
@@ -102,7 +104,6 @@ phase2 m n gRow = V.create $
   where aux dt y = do temps <- prepTemps m (gRow y)
                       q <- foldM (scan3 m temps) 0 [1..m-1]
                       foldM (scan4 (y*m) dt temps) q [m-1,m-2..0]
-                      return ()
 
 sedt :: Int -> Int -> Vector Int -> Vector Int
 sedt m n p = phase2 m n gRow
