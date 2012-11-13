@@ -1,6 +1,5 @@
 module DistanceTransform.Indexer where
 import Control.Monad (foldM)
-import Data.List (foldl')
 import Control.Concurrent (forkIO, getNumCapabilities, 
                            newEmptyMVar, putMVar, takeMVar)
 
@@ -35,36 +34,10 @@ rightmost :: Zipper a -> Zipper a
 rightmost z@(Zip _ _ []) = z
 rightmost (Zip ls x (r:rs)) = rightmost $ Zip (x:ls) r rs
 
-zipSum,zipProd,zipStride,zipStep :: Num a => Zipper a -> a
+zipSum, zipStride, zipStep :: Num a => Zipper a -> a
 zipSum = sum . fromZipper
-zipProd = product . fromZipper
 zipStride (Zip _ x rs) = product $ x:rs
 zipStep (Zip _ _ rs) = product rs
-
-zipFoldl :: Zipper b -> (a -> b -> a) -> a -> a
-zipFoldl (Zip _ x rs) f z = foldl f z (x:rs)
-
-zipFoldl' :: Zipper b -> (a -> b -> a) -> a -> a
-zipFoldl' (Zip _ x rs) f z = foldl' f z (x:rs)
-
-zipFoldr :: Zipper b -> (b -> a -> a) -> a -> a
-zipFoldr (Zip ls x rs) f z = foldr f z (x:ls)
-
-{-
--- We have a multidimensional data structure packed into a flat array,
--- and we want to iterate over a particular dimension in an inner loop
--- with an outer loop for each other dimension.
-zipMapM_ :: Monad m => Zipper Int -> (Int -> m ()) -> [Int] -> m ()
-zipMapM_ (Zip ls x rs) f indices = gol 0 (reverse ls)
-  where innerDimStride = x * product rs
-        gol offset [] = gor offset rs
-        gol offset (d:ds) = mapM_ (\i -> gol (offset + i*stride) ds) [0..d-1]
-          where stride = product ds * innerDimStride
-        gor offset [] = mapM_ (\i -> f (offset + i * stride)) indices
-          where stride = product rs
-        gor offset (d:ds) = mapM_ (\i -> gor (offset + i*stride) ds) [0..d-1]
-          where stride = product ds
--}
 
 -- Each inner loop is stateful.
 zipFoldM :: Monad m => Zipper Int -> (a -> Int -> m a) -> a -> [Int] -> m ()
@@ -90,7 +63,6 @@ parChunkMapM_ f xs0 = do caps <- getNumCapabilities
                                                                putMVar m ()
                                                  chunk (takeMVar m:ts) xs'
                          chunk [] xs0
-{- INLINE parChunkMapM_ #-}
 
 parZipFoldM :: Zipper Int -> (a -> Int -> IO a) -> a -> [Int] -> IO ()
 parZipFoldM (Zip ls x rs) f z indices = golPar $ reverse ls
@@ -139,6 +111,7 @@ parZipFoldMAsYouDo z f = parZipFoldM z auxOffset Nothing [0,1]
 {-# INLINE parZipFoldMAsYouDo #-}
 
 
+test, test2 :: IO ()
 test2 = zipFoldMAsYouDo (unsafeLeft . rightmost $ unsafeToZipper [3,3,3]) aux
   where aux offset step = putStrLn $ "Row from "++show offset++" by "++show step
 

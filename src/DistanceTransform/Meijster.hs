@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns, RecordWildCards, ScopedTypeVariables #-}
 module DistanceTransform.Meijster (edt, edtPar) where
-import Control.Applicative
-import Control.Monad (when, foldM)
+import Control.Monad (when)
 import Control.Monad.Primitive (PrimMonad, PrimState)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Unsafe (unsafeIOToST, unsafeSTToIO)
@@ -10,17 +9,13 @@ import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as VM
 import DistanceTransform.Indexer
 
--- Allocate a mutable vector, return the vector along with read and
--- write functions.
-newRW :: PrimMonad m => Int -> 
-         m (VM.MVector (PrimState m) Int, Int -> m Int, Int -> Int -> m ())
-newRW n = do { v <- VM.new n; return (v, VM.unsafeRead v, VM.unsafeWrite v) }
-
 -- This constructs Meijster's G function.
 phase1 :: Zipper Int -> Vector Int -> Vector Int
 phase1 dim p = V.map (\x -> x*x) $ V.create $
-               do (v, vread, vwrite) <- newRW (product $ fromZipper dim)
-                  let pullRight !i = if p ! i == 0
+               do v <- VM.new (product $ fromZipper dim)
+                  let vread = VM.unsafeRead v
+                      vwrite = VM.unsafeWrite v
+                      pullRight !i = if p ! i == 0
                                      then vwrite i 0
                                      else vread (i-step) >>= vwrite i . (1+)
                       pushLeft !i = do prev <- vread (i+step)
@@ -40,8 +35,10 @@ phase1 dim p = V.map (\x -> x*x) $ V.create $
 
 parPhase1 :: Zipper Int -> Vector Int -> Vector Int
 parPhase1 dim p = V.map (\x -> x*x) $ V.create $
-               do (v, vread, vwrite) <- newRW (product $ fromZipper dim)
-                  let pullRight !i = if p ! i == 0
+               do v <- VM.new (product $ fromZipper dim)
+                  let vread = VM.unsafeRead v
+                      vwrite = VM.unsafeWrite v
+                      pullRight !i = if p ! i == 0
                                      then vwrite i 0
                                      else vread (i-step) >>= vwrite i . (1+)
                       pushLeft !i = do !prev <- vread (i+step)
@@ -65,7 +62,7 @@ parPhase1 dim p = V.map (\x -> x*x) $ V.create $
 phaseN :: Zipper Int -> Vector Int -> Vector Int
 phaseN dim sedt = 
   V.create $
-  do (v,vread,vwrite) <- newRW $ V.length sedt
+  do v <- VM.new $ V.length sedt
      zipFoldMAsYouDo dim (phaseNRow m sedt v)
      return v
   where m = focus dim
@@ -74,24 +71,15 @@ phaseNRow :: forall s. Int -> Vector Int -> VM.MVector s Int -> Int -> Int -> ST
 phaseNRow m sedt v offset step = 
   do s <- VM.new m
      t <- VM.new m
-     let {-# INLINE swrite #-}
-         swrite = VM.unsafeWrite s
-         {-# INLINE sread #-}
+     let swrite = VM.unsafeWrite s
          sread = VM.unsafeRead s
-         {-# INLINE twrite #-}
          twrite = VM.unsafeWrite t
-         {-# INLINE tread #-}
          tread = VM.unsafeRead t
-         {-# INLINE gsq #-}
-         gsq !i = sedt ! (i*step+offset)
-         {-# INLINE fMetric #-}
          fMetric !x !i = let !d = x - i in d*d + gsq i
-         {-# INLINE sep #-}
          sep !i !u = ((u*u-i*i+gsq u - gsq i) `quot` (2*(u-i))) + 1
      swrite 0 0
      twrite 0 0
-     let {-# INLINE qaux #-}
-         qaux :: Int -> Int -> ST s Int
+     let qaux :: Int -> Int -> ST s Int
          qaux !u = goqaux
            where goqaux !q | q < 0 = return q
                            | otherwise = do !tq <- tread q
@@ -128,15 +116,15 @@ foldM' f = go
 parPhaseN :: Zipper Int -> Vector Int -> Vector Int
 parPhaseN dim sedt = 
   V.create $ 
-  do (v,vread,vwrite) <- newRW $ V.length sedt
+  do v <- VM.new $ V.length sedt
      unsafeIOToST $ parZipFoldMAsYouDo dim ((unsafeSTToIO .) . phaseNRow m sedt v)
      return v
   where m = focus dim
 
 -- |Dimensions given as [width,height,depth...]. The left-most
 -- dimension is the inner-most.
-sedt :: [Int] -> Vector Int -> Vector Int
-sedt dims p = go (left dim0) (phase1 dim0 p)
+mkSedt :: [Int] -> Vector Int -> Vector Int
+mkSedt dims p = go (left dim0) (phase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt = sedt
         go (Just dim) sedt = go (left dim) (phaseN dim sedt)
@@ -147,9 +135,14 @@ sedt dims p = go (left dim0) (phase1 dim0 p)
 -- collection in row-major format, we would give [width,height] or
 -- [columns,rows].
 edt :: [Int] -> Vector Int -> Vector Float
-edt dims v = V.map aux $ sedt dims v
+edt dims v = V.map aux $ mkSedt dims v
   where aux = sqrt . fromIntegral . min 80
 
+-- |Compute the Euclidean distance transform of an N-dimensional array
+-- using multiple processor cores. Dimensions given as
+-- [width,height,depth...]. The left-most dimension is the
+-- inner-most. For an array representing a 2D collection in row-major
+-- format, we would give [width,height] or [columns,rows].
 edtPar :: [Int] -> Vector Int -> Vector Float
 edtPar dims v = V.map aux $ sedtPar dims v
   where aux = sqrt . fromIntegral . min 80
