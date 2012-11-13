@@ -15,6 +15,6 @@ testData = V.create $ do v <- VM.replicate (testRes^3) 1
 
 main = do putStr "I am sane, true or false? "
           print (edt dims testData == edtPar dims testData)
-          -- defaultMain [ bench "serial" $ whnf (edt dims) testData
-          --             , bench "parallel" $ whnf (edtPar dims) testData ]
+          defaultMain [ bench "serial" $ whnf (edt dims) testData
+                      , bench "parallel" $ whnf (edtPar dims) testData ]
   where dims = replicate 3 testRes
