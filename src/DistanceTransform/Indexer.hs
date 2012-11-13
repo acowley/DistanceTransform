@@ -90,13 +90,16 @@ parChunkMapM_ f xs0 = do caps <- getNumCapabilities
                                                                putMVar m ()
                                                  chunk (takeMVar m:ts) xs'
                          chunk [] xs0
+{-# INLINE parChunkMapM_ #-}
 
 parZipFoldM :: Zipper Int -> (a -> Int -> IO a) -> a -> [Int] -> IO ()
 parZipFoldM (Zip ls x rs) f z indices = golPar $ reverse ls
   where innerDimStride = x * product rs
-        golPar [] = parChunkMapM_ (\i -> gor (i*stride) rs') [0..r-1]
-          where r:rs' = rs
-                stride = product rs'
+        golPar [] = case rs of
+                      [] -> gor 0 []
+                      r:rs' -> let stride = product rs'
+                               in parChunkMapM_ (\i -> gor (i*stride) rs')
+                                                [0..r-1]
         golPar (d:ds) = parChunkMapM_ (\i -> gol (i*stride) ds) [0..d-1]
           where stride = product ds * innerDimStride
         gol offset [] = gor offset rs

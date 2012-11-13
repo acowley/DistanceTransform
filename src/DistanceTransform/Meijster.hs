@@ -38,6 +38,28 @@ phase1 dim p = V.map (\x -> x*x) $ V.create $
         n = focus dim -- Get the actual dimension size
         n' = n * step
 
+parPhase1 :: Zipper Int -> Vector Int -> Vector Int
+parPhase1 dim p = V.map (\x -> x*x) $ V.create $
+               do (v, vread, vwrite) <- newRW (product $ fromZipper dim)
+                  let pullRight !i = if p ! i == 0
+                                     then vwrite i 0
+                                     else vread (i-step) >>= vwrite i . (1+)
+                      pushLeft !i = do !prev <- vread (i+step)
+                                       !curr <- vread i
+                                       when (prev < curr) (vwrite i $! prev+1)
+                      innerLoop !offset _ = 
+                        do vwrite offset $ toInfty offset
+                           mapM_ (pullRight . (offset+)) [step,2*step..n' - 1]
+                           mapM_ (pushLeft . (offset+)) [n'-2*step,n'-3*step..0]
+                  unsafeIOToST $ 
+                    parZipFoldMAsYouDo dim ((unsafeSTToIO .) . innerLoop)
+                  return v
+  where toInfty i = let dimsum = zipSum dim
+                    in if p ! i == 0 then 0 else dimsum
+        step = zipStep dim
+        n = focus dim -- Get the actual dimension size
+        n' = n * step
+
 -- Each phase needs the squared eucilidean distance from the previous
 -- phase.
 phaseN :: Zipper Int -> Vector Int -> Vector Int
@@ -63,15 +85,9 @@ phaseNRow m sedt v offset step =
          {-# INLINE gsq #-}
          gsq !i = sedt ! (i*step+offset)
          {-# INLINE fMetric #-}
-         -- fMetric !x !i = let !d = x - i
-         --                     !g = gsq i
-         --                 in d*d + g
          fMetric !x !i = let !d = x - i in d*d + gsq i
          {-# INLINE sep #-}
-         sep !i !u = let !num = u*u-i*i+gsq u - gsq i
-                         !den = 2 * (u - i)
-                         !r = (num `quot` den) + 1
-                     in r
+         sep !i !u = ((u*u-i*i+gsq u - gsq i) `quot` (2*(u-i))) + 1
      swrite 0 0
      twrite 0 0
      let {-# INLINE qaux #-}
@@ -99,7 +115,7 @@ phaseNRow m sedt v offset step =
                           if u == tq then let !q' = q-1 in return q' 
                                      else return q
      q <- foldM' scan3 0 [1..m-1]
-     foldM' scan4 q [m-1,m-2..0]
+     _ <- foldM' scan4 q [m-1,m-2..0]
      return ()
   where gsq !i = sedt ! (offset+step*i)
 
@@ -139,7 +155,7 @@ edtPar dims v = V.map aux $ sedtPar dims v
   where aux = sqrt . fromIntegral . min 80
 
 sedtPar :: [Int] -> Vector Int -> Vector Int
-sedtPar dims p = go (left dim0) (phase1 dim0 p)
+sedtPar dims p = go (left dim0) (parPhase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt = sedt
         go (Just dim) sedt = go (left dim) (parPhaseN dim sedt)
