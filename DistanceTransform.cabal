@@ -16,8 +16,10 @@ library
                        DistanceTransform.Euclidean3D,
                        DistanceTransform.Internal.STNum,
                        DistanceTransform.Internal.Extended
+                       DistanceTransform.Meijster
+                       DistanceTransform.Indexer
   -- other-modules:       
-  build-depends:       base >=4.6 && < 5, vector >=0.9, linear >=0.2, 
+  build-depends:       base >=4.6 && < 5, vector >=0.9, linear >=0.2, primitive,
                        JuicyPixels ==2.0.*
   hs-source-dirs:      src
   default-language:    Haskell2010
