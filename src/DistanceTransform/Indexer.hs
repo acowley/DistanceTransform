@@ -90,7 +90,7 @@ parChunkMapM_ f xs0 = do caps <- getNumCapabilities
                                                                putMVar m ()
                                                  chunk (takeMVar m:ts) xs'
                          chunk [] xs0
-{-# INLINE parChunkMapM_ #-}
+{- INLINE parChunkMapM_ #-}
 
 parZipFoldM :: Zipper Int -> (a -> Int -> IO a) -> a -> [Int] -> IO ()
 parZipFoldM (Zip ls x rs) f z indices = golPar $ reverse ls
