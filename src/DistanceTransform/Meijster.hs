@@ -1,8 +1,9 @@
-{-# LANGUAGE BangPatterns, RecordWildCards #-}
+{-# LANGUAGE BangPatterns, RecordWildCards, ScopedTypeVariables #-}
 module DistanceTransform.Meijster (edt, edtPar) where
 import Control.Applicative
 import Control.Monad (when, foldM)
 import Control.Monad.Primitive (PrimMonad, PrimState)
+import Control.Monad.ST (ST)
 import Control.Monad.ST.Unsafe (unsafeIOToST, unsafeSTToIO)
 import Data.Vector.Storable (Vector, (!))
 import qualified Data.Vector.Storable as V
@@ -43,30 +44,86 @@ phaseN :: Zipper Int -> Vector Int -> Vector Int
 phaseN dim sedt = 
   V.create $
   do (v,vread,vwrite) <- newRW $ V.length sedt
-     let f !offset !step = let gsq !i = sedt ! (offset+step*i)
-                               dt !i = vwrite (offset + i*step)
-                           in do temps <- prepTemps m gsq
-                                 q <- foldM (scan3 m temps) 0 [1..m-1]
-                                 foldM (scan4 dt temps) q [m-1,m-2..0]
-                                 return ()
-     zipFoldMAsYouDo dim f
+     -- let f !offset !step = let gsq !i = sedt ! (offset+step*i)
+     --                           {-# INLINE [0] gsq #-}
+     --                           dt !i = vwrite (offset + i*step)
+     --                       in do temps <- prepTemps m gsq
+     --                             q <- foldM (scan3 m temps) 0 [1..m-1]
+     --                             foldM (scan4 dt temps) q [m-1,m-2..0]
+     --                             return ()
+     --zipFoldMAsYouDo dim f
+     zipFoldMAsYouDo dim (phaseNRow m sedt v)
      return v
   where m = focus dim
+
+phaseNRow :: forall s. Int -> Vector Int -> VM.MVector s Int -> Int -> Int -> ST s ()
+phaseNRow m sedt v offset step = 
+  do s <- VM.new m
+     t <- VM.new m
+     let {-# INLINE swrite #-}
+         swrite = VM.unsafeWrite s
+         {-# INLINE sread #-}
+         sread = VM.unsafeRead s
+         {-# INLINE twrite #-}
+         twrite = VM.unsafeWrite t
+         {-# INLINE tread #-}
+         tread = VM.unsafeRead t
+         {-# INLINE gsq #-}
+         gsq !i = sedt ! (i*step+offset)
+         {-# INLINE fMetric #-}
+         fMetric !x !i = let !d = x - i in d*d + gsq i
+         {-# INLINE sep #-}
+         sep !i !u = let !num = u*u-i*i+gsq u - gsq i
+                         !den = 2 * (u - i)
+                         !r = (num `quot` den) + 1
+                     in r
+     swrite 0 0
+     twrite 0 0
+     let {-# INLINE dt #-}
+         dt !i = VM.unsafeWrite v (offset+i*step)
+         qaux :: Int -> Int -> ST s Int
+         qaux !u = goqaux
+           where goqaux !q | q < 0 = return q
+                           | otherwise = do !tq <- tread q
+                                            !sq <- sread q
+                                            if fMetric tq sq > fMetric tq u
+                                            then let !q' = q-1 in goqaux q'
+                                            else return q
+         scan3 !q0 !u = do !q <- qaux u q0
+                           if q < 0 then swrite 0 u >> return 0
+                           else do !w <- sread q >>= return . flip sep u
+                                   if w < m
+                                   then let !q' = q+1
+                                        in do swrite q' u
+                                              twrite q' w
+                                              return q'
+                                   else return q
+         scan4 !q !u = do !sq <- sread q
+                          dt u $! fMetric u sq
+                          !tq <- tread q
+                          if u == tq then let !q' = q-1 in return q' 
+                                     else return q
+     q <- foldM scan3 0 [1..m-1]
+     foldM scan4 q [m-1,m-2..0]
+     return ()
+  where gsq !i = sedt ! (offset+step*i)
 
 parPhaseN :: Zipper Int -> Vector Int -> Vector Int
 parPhaseN dim sedt = 
   V.create $ 
   do (v,vread,vwrite) <- newRW $ V.length sedt
-     let f offset step = let gsq !i = sedt ! (offset+step*i)
-                             dt !i = vwrite (offset + i*step)
-                         in do temps <- prepTemps m gsq
-                               q <- foldM (scan3 m temps) 0 [1..m-1]
-                               foldM (scan4 dt temps) q [m-1,m-2..0]
-                               return ()
-     unsafeIOToST $ parZipFoldMAsYouDo dim ((unsafeSTToIO .) . f)
+     -- let f offset step = let gsq !i = sedt ! (offset+step*i)
+     --                         {-# INLINE [0] gsq #-}
+     --                         dt !i = vwrite (offset + i*step)
+     --                     in do temps <- prepTemps m gsq
+     --                           q <- foldM (scan3 m temps) 0 [1..m-1]
+     --                           foldM (scan4 dt temps) q [m-1,m-2..0]
+     --                           return ()
+     --unsafeIOToST $ parZipFoldMAsYouDo dim ((unsafeSTToIO .) . f)
+     unsafeIOToST $ parZipFoldMAsYouDo dim ((unsafeSTToIO .) . phaseNRow m sedt v)
      return v
   where m = focus dim
-
+{-
 iterateWhileM :: Monad m => (a -> m (Maybe a)) -> a -> m a
 iterateWhileM f = go 
   where go x = do !x' <- f x
@@ -97,7 +154,8 @@ prepTemps m gsq = do (_, sread, swrite) <- newRW m
   where f !x !i = let !d = x - i in d*d + gsq i
         sep !i !u = (u*u - i*i + gsq u - gsq i) `quot` 2*(u-i)
 {-# INLINE prepTemps #-}
-
+-}
+{-
 -- Phase N forward scan across a row.
 scan3 :: (Applicative m, Monad m) => Int -> Temps m -> Int -> Int -> m Int
 scan3 m Temps{..} !q0 !u =
@@ -130,7 +188,8 @@ scan3 m Temps{..} !q0 !u =
         fMetric' !x !i = let !d = x - i in d*d + tmpGsq i
         sep' !i !u = ((u*u - i*i + tmpGsq u - tmpGsq i) `quot` 2*(u-i)) + 1
 {-# INLINE scan3 #-}
-
+-}
+{-
 -- Phase N backward scan across a row.
 scan4 :: Monad m => (Int -> Int -> m ()) -> Temps m -> Int -> Int -> m Int
 scan4 dtwrite Temps{..} !q !u = 
@@ -139,7 +198,7 @@ scan4 dtwrite Temps{..} !q !u =
      tq <- tread q
      if u == tq then return (q-1) else return q
 {-# INLINE scan4 #-}
-
+-}
 -- |Dimensions given as [width,height,depth...]. The left-most
 -- dimension is the inner-most.
 sedt :: [Int] -> Vector Int -> Vector Int
