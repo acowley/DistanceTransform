@@ -141,6 +141,8 @@ mkSedt dims p = go (left dim0) (phase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt = sedt
         go (Just dim) sedt = go (left dim) (phaseN dim sedt)
+{-# SPECIALIZE mkSedt :: [Int] -> Vector Int -> Vector Int #-}
+{-# SPECIALIZE mkSedt :: [Int] -> Vector Word8 -> Vector Int #-}
 
 -- |Compute the Euclidean distance transform of an N-dimensional
 -- array. Dimensions given as [width,height,depth...]. The left-most
@@ -169,3 +171,5 @@ sedtPar dims p = go (left dim0) (parPhase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt = sedt
         go (Just dim) sedt = go (left dim) (parPhaseN dim sedt)
+{-# SPECIALIZE sedtPar :: [Int] -> Vector Int -> Vector Int #-}
+{-# SPECIALIZE sedtPar :: [Int] -> Vector Word8 -> Vector Int #-}
