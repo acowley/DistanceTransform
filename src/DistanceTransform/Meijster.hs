@@ -8,7 +8,7 @@ import Data.Vector.Storable (Vector, (!))
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as VM
 import Data.Word (Word8)
-import DistanceTransform.Indexer
+import DistanceTransform.Internal.Indexer
 
 -- This constructs Meijster's G function.
 phase1 :: (VM.Storable a, Integral a) => Zipper Int -> Vector a -> Vector Int

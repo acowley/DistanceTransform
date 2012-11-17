@@ -1,4 +1,4 @@
-module DistanceTransform.Indexer where
+module DistanceTransform.Internal.Indexer where
 import Control.Monad (foldM)
 import Control.Concurrent (forkIO, getNumCapabilities, 
                            newEmptyMVar, putMVar, takeMVar)
