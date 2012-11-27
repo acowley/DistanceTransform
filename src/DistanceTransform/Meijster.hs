@@ -1,5 +1,5 @@
 {-# LANGUAGE BangPatterns, RecordWildCards, ScopedTypeVariables #-}
-module DistanceTransform.Meijster (edt, edtPar) where
+module DistanceTransform.Meijster (edt, edtPar, sedt, sedtPar) where
 import Control.Monad (when)
 import Control.Monad.Primitive (PrimMonad, PrimState)
 import Control.Monad.ST (ST)
@@ -67,15 +67,15 @@ parPhase1 dim p = V.map (\x -> x*x) $ V.create $
 -- Each phase needs the squared eucilidean distance from the previous
 -- phase.
 phaseN :: Zipper Int -> Vector Int -> Vector Int
-phaseN dim sedt = 
+phaseN dim sedt' = 
   V.create $
-  do v <- VM.new $ V.length sedt
-     zipFoldMAsYouDo dim (phaseNRow m sedt v)
+  do v <- VM.new $ V.length sedt'
+     zipFoldMAsYouDo dim (phaseNRow m sedt' v)
      return v
   where m = focus dim
 
 phaseNRow :: forall s. Int -> Vector Int -> VM.MVector s Int -> Int -> Int -> ST s ()
-phaseNRow m sedt v offset step = 
+phaseNRow m sedt' v offset step = 
   do s <- VM.new m
      t <- VM.new m
      let {-# INLINE fMetric #-}
@@ -116,7 +116,7 @@ phaseNRow m sedt v offset step =
      q <- foldMfromStepTo scan3 (0::Int) 1 (+1) (m-1)
      _ <- foldMfromStepTo scan4 q (m-1) (subtract 1) (0::Int)
      return ()
-  where gsq !i = sedt ! (offset+step*i)
+  where gsq !i = sedt' ! (offset+step*i)
         {-# INLINE gsq #-}
 
 {-# INLINE foldMfromStepTo #-}
@@ -127,22 +127,22 @@ foldMfromStepTo f z from step to = go from z
         go !x !acc = if x == to' then return acc else f acc x >>= go (step x)
 
 parPhaseN :: Zipper Int -> Vector Int -> Vector Int
-parPhaseN dim sedt = 
+parPhaseN dim sedt' = 
   V.create $ 
-  do v <- VM.new $ V.length sedt
-     unsafeIOToST $ parZipFoldMAsYouDo dim ((unsafeSTToIO .) . phaseNRow m sedt v)
+  do v <- VM.new $ V.length sedt'
+     unsafeIOToST $ parZipFoldMAsYouDo dim ((unsafeSTToIO .) . phaseNRow m sedt' v)
      return v
   where m = focus dim
 
 -- |Dimensions given as [width,height,depth...]. The left-most
 -- dimension is the inner-most.
-mkSedt :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Int
-mkSedt dims p = go (left dim0) (phase1 dim0 p)
+sedt :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Int
+sedt dims p = go (left dim0) (phase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
-        go Nothing sedt = sedt
-        go (Just dim) sedt = go (left dim) (phaseN dim sedt)
-{-# SPECIALIZE mkSedt :: [Int] -> Vector Int -> Vector Int #-}
-{-# SPECIALIZE mkSedt :: [Int] -> Vector Word8 -> Vector Int #-}
+        go Nothing sedt' = sedt'
+        go (Just dim) sedt' = go (left dim) (phaseN dim sedt')
+{-# SPECIALIZE sedt :: [Int] -> Vector Int -> Vector Int #-}
+{-# SPECIALIZE sedt :: [Int] -> Vector Word8 -> Vector Int #-}
 
 -- |Compute the Euclidean distance transform of an N-dimensional
 -- array. Dimensions given as [width,height,depth...]. The left-most
@@ -150,7 +150,7 @@ mkSedt dims p = go (left dim0) (phase1 dim0 p)
 -- collection in row-major format, we would give [width,height] or
 -- [columns,rows].
 edt :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Float
-edt dims v = V.map aux $ mkSedt dims v
+edt dims v = V.map aux $ sedt dims v
   where aux = sqrt . fromIntegral -- . min 80
 {-# SPECIALIZE edt :: [Int] -> Vector Int -> Vector Float #-}
 {-# SPECIALIZE edt :: [Int] -> Vector Word8 -> Vector Float #-}

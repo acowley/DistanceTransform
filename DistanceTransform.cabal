@@ -1,5 +1,5 @@
 name:                DistanceTransform
-version:             0.1.0.0
+version:             0.1.1
 synopsis:            Distance transform function.
 --description:         
 license:             BSD3
