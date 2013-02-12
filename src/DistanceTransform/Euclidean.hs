@@ -1,19 +1,21 @@
-{-# LANGUAGE BangPatterns, RecordWildCards, ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns, RecordWildCards, ScopedTypeVariables, 
+             FlexibleContexts #-}
 module DistanceTransform.Euclidean (edt, edtPar, sedt, sedtPar) where
 import Control.Monad (when)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Unsafe (unsafeIOToST, unsafeSTToIO)
-import Data.Vector.Storable (Vector, (!))
-import qualified Data.Vector.Storable as V
-import qualified Data.Vector.Storable.Mutable as VM
+import qualified Data.Vector.Generic as G
+import Data.Vector.Unboxed (Vector, (!))
+import qualified Data.Vector.Unboxed as V
+import qualified Data.Vector.Unboxed.Mutable as VM
 import Data.Word (Word8)
 import DistanceTransform.Internal.Indexer
 
 -- This constructs Meijster's G function.
-phase1 :: (VM.Storable a, Integral a) => Zipper Int -> Vector a -> Vector Int
+phase1 :: (Integral a, G.Vector v a) => Zipper Int -> v a -> Vector Int
 phase1 dim p = V.map (\x -> x*x) $ V.create $
                do v <- VM.new (product $ fromZipper dim)
-                  let pullRight !i = if p ! i == 0
+                  let pullRight !i = if p G.! i == 0
                                      then VM.unsafeWrite v i 0
                                      else VM.unsafeRead v (i-step) >>= 
                                           (VM.unsafeWrite v i $!) . (1+)
@@ -28,18 +30,16 @@ phase1 dim p = V.map (\x -> x*x) $ V.create $
                   zipFoldMAsYouDo dim innerLoop
                   return v
   where toInfty !i = let !dimsum = zipSum dim
-                     in if p ! i == 0 then 0 else dimsum
+                     in if p G.! i == 0 then 0 else dimsum
         {-# INLINE toInfty #-}
         step = zipStep dim
         n = focus dim -- Get the actual dimension size
         n' = n * step
-{-# SPECIALIZE phase1 :: Zipper Int -> Vector Int -> Vector Int #-}
-{-# SPECIALIZE phase1 :: Zipper Int -> Vector Word8 -> Vector Int #-}
 
-parPhase1 :: (VM.Storable a, Integral a) => Zipper Int -> Vector a -> Vector Int
+parPhase1 :: (Integral a, G.Vector v a) => Zipper Int -> v a -> Vector Int
 parPhase1 dim p = V.map (\x -> x*x) $ V.create $
                do v <- VM.new (product $ fromZipper dim)
-                  let pullRight !i = if p ! i == 0
+                  let pullRight !i = if p G.! i == 0
                                      then VM.unsafeWrite v i 0
                                      else VM.unsafeRead v (i-step) >>= 
                                           (VM.unsafeWrite v i $!) . (1+)
@@ -55,13 +55,11 @@ parPhase1 dim p = V.map (\x -> x*x) $ V.create $
                     parZipFoldMAsYouDo dim ((unsafeSTToIO .) . innerLoop)
                   return v
   where toInfty !i = let dimsum = zipSum dim
-                     in if p ! i == 0 then 0 else dimsum
+                     in if p G.! i == 0 then 0 else dimsum
         {-# INLINE toInfty #-}
         step = zipStep dim
         n = focus dim -- Get the actual dimension size
         n' = n * step
-{-# SPECIALIZE parPhase1 :: Zipper Int -> Vector Int -> Vector Int #-}
-{-# SPECIALIZE parPhase1 :: Zipper Int -> Vector Word8 -> Vector Int #-}
 
 -- Each phase needs the squared eucilidean distance from the previous
 -- phase.
@@ -73,7 +71,8 @@ phaseN dim sedt' =
      return v
   where m = focus dim
 
-phaseNRow :: forall s. Int -> Vector Int -> VM.MVector s Int -> Int -> Int -> ST s ()
+phaseNRow :: forall s. Int -> Vector Int -> VM.STVector s Int -> Int -> Int
+          -> ST s ()
 phaseNRow m sedt' v offset step = 
   do s <- VM.new m
      t <- VM.new m
@@ -86,7 +85,7 @@ phaseNRow m sedt' v offset step =
      VM.unsafeWrite s 0 0
      VM.unsafeWrite t 0 0
      let {-# INLINE qaux #-}
-         qaux :: Int -> (Int -> ST s Int) -> Int -> ST s Int
+         -- qaux :: Int -> (Int -> ST s Int) -> Int -> ST s Int
          qaux !u k = goqaux
            where goqaux !q | q < 0 = k q
                            | otherwise = do !tq <- VM.unsafeRead t q
@@ -135,7 +134,7 @@ parPhaseN dim sedt' =
 
 -- |Dimensions given as [width,height,depth...]. The left-most
 -- dimension is the inner-most.
-sedt :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Int
+sedt :: (G.Vector v a, Integral a) => [Int] -> v a -> Vector Int
 sedt dims p = go (left dim0) (phase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
@@ -147,9 +146,9 @@ sedt dims p = go (left dim0) (phase1 dim0 p)
 -- dimension is the inner-most. For an array representing a 2D
 -- collection in row-major format, we would give [width,height] or
 -- [columns,rows].
-edt :: (VM.Storable a, Integral a, VM.Storable b, Floating b)
-    => [Int] -> Vector a -> Vector b
-edt dims v = V.map aux $ sedt dims v
+edt :: (Integral a, Floating b, G.Vector v a, G.Vector v b, G.Vector v Int)
+    => [Int] -> v a -> v b
+edt dims v = G.map aux . G.convert $ sedt dims v
   where aux = sqrt . fromIntegral -- . min 80
 {-# INLINE edt #-}
 
@@ -158,13 +157,13 @@ edt dims v = V.map aux $ sedt dims v
 -- [width,height,depth...]. The left-most dimension is the
 -- inner-most. For an array representing a 2D collection in row-major
 -- format, we would give [width,height] or [columns,rows].
-edtPar :: (VM.Storable a, Integral a, Floating b, VM.Storable b)
-       => [Int] -> Vector a -> Vector b
-edtPar dims v = V.map aux $ sedtPar dims v
+edtPar :: (Integral a, Floating b, G.Vector v a, G.Vector v b, G.Vector v Int)
+       => [Int] -> v a -> v b
+edtPar dims v = G.map aux . G.convert $ sedtPar dims v
   where aux = sqrt . fromIntegral -- . min 80
 {-# INLINE edtPar #-}
 
-sedtPar :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Int
+sedtPar :: (G.Vector v a, Integral a) => [Int] -> v a -> Vector Int
 sedtPar dims p = go (left dim0) (parPhase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
