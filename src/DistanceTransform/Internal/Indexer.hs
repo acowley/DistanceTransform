@@ -1,21 +1,30 @@
+-- |Helpers for performing nested loop iteration. Includes variants
+-- for parallel computation.
 module DistanceTransform.Internal.Indexer where
 import Control.Monad (foldM)
 import Control.Concurrent (forkIO, getNumCapabilities, 
                            newEmptyMVar, putMVar, takeMVar)
 
--- We use a zipper on list to walk over dimensions.
+-- | We use a zipper on list to walk over dimensions of an array.
 data Zipper a = Zip [a] a [a]
 
+-- | Create a 'Zipper' from a non-empty list, with the cursor on the
+-- leftmost element.
 toZipper :: a -> [a] -> Zipper a
 toZipper = Zip []
 
+-- | Create a 'Zipper' from a non-empty list, with the cursor on the
+-- leftmost element. An exception is thrown if the given list is
+-- empty.
 unsafeToZipper :: [a] -> Zipper a
 unsafeToZipper [] = error "A comonad can't be empty!"
 unsafeToZipper (x:xs) = Zip [] x xs
 
+-- | Convert a 'Zipper' to a list.
 fromZipper :: Zipper a -> [a]
 fromZipper (Zip l x r) = reverse l ++ x : r
 
+-- | Move a 'Zipper' to the left.
 left :: Zipper a -> Maybe (Zipper a)
 left (Zip [] _ _) = Nothing
 left (Zip (l:ls) x r) = Just $ Zip ls l (x:r)
@@ -27,16 +36,30 @@ right :: Zipper a -> Maybe (Zipper a)
 right (Zip _ _ []) = Nothing
 right (Zip ls x (r:rs)) = Just $ Zip (x:ls) r rs
 
+-- | Comonadic coreturn: produce the value a 'Zipper' is currently
+-- focused upon.
 focus :: Zipper a -> a
 focus (Zip _ x _) = x
 
+-- | Slide a 'Zipper' over until focused on its rightmost element.
 rightmost :: Zipper a -> Zipper a
 rightmost z@(Zip _ _ []) = z
 rightmost (Zip ls x (r:rs)) = rightmost $ Zip (x:ls) r rs
 
 zipSum, zipStride, zipStep :: Num a => Zipper a -> a
+-- | Since we are using 'Zipper's to track the size of
+-- multidemensional arrays, the sum of all zipper elements gives the
+-- size of the entire array.
 zipSum = sum . fromZipper
+
+-- | Computes the stride between rows at the currently focused
+-- dimension. This involves stepping over the rest of the current row
+-- along all nested dimensions.
 zipStride (Zip _ x rs) = product $ x:rs
+
+-- | Computes the step between consective elements at the currently
+-- focused dimension. This involves stepping over all nested
+-- dimensions.
 zipStep (Zip _ _ rs) = product rs
 
 -- Each inner loop is stateful.
@@ -109,30 +132,3 @@ parZipFoldMAsYouDo z f = parZipFoldM z auxOffset Nothing [0,1]
         auxOffset (Just offset) step' = f offset (step' - offset) >>
                                         return Nothing
 {-# INLINE parZipFoldMAsYouDo #-}
-
-
-test, test2 :: IO ()
-test2 = zipFoldMAsYouDo (unsafeLeft . rightmost $ unsafeToZipper [3,3,3]) aux
-  where aux offset step = putStrLn $ "Row from "++show offset++" by "++show step
-
-test = zipMapM_ cursor print [0..3-1]
-  where cursor = unsafeLeft . unsafeLeft . rightmost $ unsafeToZipper [3,3,3]
-
-{-
-0 1 2
-3 4 5
-6 7 8
-
- 9 10 11
-12 13 14
-15 16 17
-
-18 19 20
-21 22 23
-24 25 26
--}
-
-{- So if I want to iterate over the second dimension, I expect to get:
-0 3 6 1 4 7 2 5 8
-9 12 15 10 13 16 11 14 17 ...
--}

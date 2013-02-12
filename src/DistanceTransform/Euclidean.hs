@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns, RecordWildCards, ScopedTypeVariables #-}
-module DistanceTransform.Meijster (edt, edtPar, sedt, sedtPar) where
+module DistanceTransform.Euclidean (edt, edtPar, sedt, sedtPar) where
 import Control.Monad (when)
-import Control.Monad.Primitive (PrimMonad, PrimState)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Unsafe (unsafeIOToST, unsafeSTToIO)
 import Data.Vector.Storable (Vector, (!))
@@ -141,35 +140,33 @@ sedt dims p = go (left dim0) (phase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
         go (Just dim) sedt' = go (left dim) (phaseN dim sedt')
-{-# SPECIALIZE sedt :: [Int] -> Vector Int -> Vector Int #-}
-{-# SPECIALIZE sedt :: [Int] -> Vector Word8 -> Vector Int #-}
+{-# INLINE sedt #-}
 
 -- |Compute the Euclidean distance transform of an N-dimensional
 -- array. Dimensions given as [width,height,depth...]. The left-most
 -- dimension is the inner-most. For an array representing a 2D
 -- collection in row-major format, we would give [width,height] or
 -- [columns,rows].
-edt :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Float
+edt :: (VM.Storable a, Integral a, VM.Storable b, Floating b)
+    => [Int] -> Vector a -> Vector b
 edt dims v = V.map aux $ sedt dims v
   where aux = sqrt . fromIntegral -- . min 80
-{-# SPECIALIZE edt :: [Int] -> Vector Int -> Vector Float #-}
-{-# SPECIALIZE edt :: [Int] -> Vector Word8 -> Vector Float #-}
+{-# INLINE edt #-}
 
 -- |Compute the Euclidean distance transform of an N-dimensional array
 -- using multiple processor cores. Dimensions given as
 -- [width,height,depth...]. The left-most dimension is the
 -- inner-most. For an array representing a 2D collection in row-major
 -- format, we would give [width,height] or [columns,rows].
-edtPar :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Float
+edtPar :: (VM.Storable a, Integral a, Floating b, VM.Storable b)
+       => [Int] -> Vector a -> Vector b
 edtPar dims v = V.map aux $ sedtPar dims v
   where aux = sqrt . fromIntegral -- . min 80
-{-# SPECIALIZE edtPar :: [Int] -> Vector Int -> Vector Float #-}
-{-# SPECIALIZE edtPar :: [Int] -> Vector Word8 -> Vector Float #-}
+{-# INLINE edtPar #-}
 
 sedtPar :: (VM.Storable a, Integral a) => [Int] -> Vector a -> Vector Int
 sedtPar dims p = go (left dim0) (parPhase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
-        go Nothing sedt = sedt
-        go (Just dim) sedt = go (left dim) (parPhaseN dim sedt)
-{-# SPECIALIZE sedtPar :: [Int] -> Vector Int -> Vector Int #-}
-{-# SPECIALIZE sedtPar :: [Int] -> Vector Word8 -> Vector Int #-}
+        go Nothing sedt' = sedt'
+        go (Just dim) sedt' = go (left dim) (parPhaseN dim sedt')
+{-# INLINE sedtPar #-}
