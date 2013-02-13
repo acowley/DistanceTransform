@@ -1,9 +1,10 @@
 -- |Helpers for performing nested loop iteration. Includes variants
 -- for parallel computation.
 module DistanceTransform.Internal.Indexer where
-import Control.Monad (foldM)
+import Control.Monad (foldM_)
 import Control.Concurrent (forkIO, getNumCapabilities, 
                            newEmptyMVar, putMVar, takeMVar)
+import Data.Maybe (fromMaybe)
 
 -- | We use a zipper on list to walk over dimensions of an array.
 data Zipper a = Zip [a] a [a]
@@ -30,7 +31,7 @@ left (Zip [] _ _) = Nothing
 left (Zip (l:ls) x r) = Just $ Zip ls l (x:r)
 
 unsafeLeft :: Zipper a -> Zipper a
-unsafeLeft z = maybe z id $ left z
+unsafeLeft z = fromMaybe z $ left z
 
 right :: Zipper a -> Maybe (Zipper a)
 right (Zip _ _ []) = Nothing
@@ -69,8 +70,7 @@ zipFoldM (Zip ls x rs) f z indices = gol 0 (reverse ls)
         gol offset [] = gor offset rs
         gol offset (d:ds) = mapM_ (\i -> gol (offset + i*stride) ds) [0..d-1]
           where stride = product ds * innerDimStride
-        gor offset [] = foldM (\s i -> f s (offset + i*stride)) z indices >>
-                        return ()
+        gor offset [] = foldM_ (\s i -> f s (offset + i*stride)) z indices
           where stride = product rs
         gor offset (d:ds) = mapM_ (\i -> gor (offset + i*stride) ds) [0..d-1]
           where stride = product ds
@@ -100,15 +100,14 @@ parZipFoldM (Zip ls x rs) f z indices = golPar $ reverse ls
         gol offset [] = gor offset rs
         gol offset (d:ds) = mapM_ (\i -> gol (offset + i*stride) ds) [0..d-1]
           where stride = product ds * innerDimStride
-        gor offset [] = foldM (\s i -> f s (offset + i*stride)) z indices >>
-                        return ()
+        gor offset [] = foldM_ (\s i -> f s (offset + i*stride)) z indices
           where stride = product rs
         gor offset (d:ds) = mapM_ (\i -> gor (offset + i*stride) ds) [0..d-1]
           where stride = product ds
 {-# INLINE parZipFoldM #-}
 
 zipMapM_ :: Monad m => Zipper Int -> (Int -> m ()) -> [Int] -> m ()
-zipMapM_ z f is = zipFoldM z (const f) () is
+zipMapM_ z f = zipFoldM z (const f) ()
 {-# INLINE zipMapM_ #-}
 
 -- Give a function an offset to the start of its indices and the step
