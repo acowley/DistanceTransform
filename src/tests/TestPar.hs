@@ -2,6 +2,7 @@ module Main (main) where
 import Criterion.Main
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as VM
+import qualified Data.Vector.Unboxed as U
 import DistanceTransform.Euclidean
 
 testRes :: Int
@@ -18,7 +19,7 @@ main = do putStr "I am sane, true or false? "
           defaultMain [ bench "serial" $ whnf (edt' dims) testData
                       , bench "parallel" $ whnf (edtPar' dims) testData ]
   where dims = replicate 3 testRes
-        edt' :: [Int] -> V.Vector Int -> V.Vector Float
+        edt' :: [Int] -> V.Vector Int -> U.Vector Float
         edt' = edt
-        edtPar' :: [Int] -> V.Vector Int -> V.Vector Float
+        edtPar' :: [Int] -> V.Vector Int -> U.Vector Float
         edtPar' = edtPar

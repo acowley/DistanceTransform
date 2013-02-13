@@ -6,6 +6,7 @@ import Control.Monad.ST (ST)
 import Control.Monad.ST.Unsafe (unsafeIOToST, unsafeSTToIO)
 import qualified Data.Vector.Generic as G
 import Data.Vector.Unboxed (Vector, (!))
+import qualified Data.Vector.Storable as S
 import qualified Data.Vector.Unboxed as V
 import qualified Data.Vector.Unboxed.Mutable as VM
 import Data.Word (Word8)
@@ -35,6 +36,10 @@ phase1 dim p = V.map (\x -> x*x) $ V.create $
         step = zipStep dim
         n = focus dim -- Get the actual dimension size
         n' = n * step
+{-# SPECIALIZE phase1 :: Zipper Int -> V.Vector Int -> Vector Int #-}
+{-# SPECIALIZE phase1 :: Zipper Int -> S.Vector Int -> Vector Int #-}
+{-# SPECIALIZE phase1 :: Zipper Int -> V.Vector Word8 -> Vector Int #-}
+{-# SPECIALIZE phase1 :: Zipper Int -> S.Vector Word8 -> Vector Int #-}
 
 parPhase1 :: (Integral a, G.Vector v a) => Zipper Int -> v a -> Vector Int
 parPhase1 dim p = V.map (\x -> x*x) $ V.create $
@@ -60,6 +65,10 @@ parPhase1 dim p = V.map (\x -> x*x) $ V.create $
         step = zipStep dim
         n = focus dim -- Get the actual dimension size
         n' = n * step
+{-# SPECIALIZE parPhase1 :: Zipper Int -> V.Vector Int -> Vector Int #-}
+{-# SPECIALIZE parPhase1 :: Zipper Int -> S.Vector Int -> Vector Int #-}
+{-# SPECIALIZE parPhase1 :: Zipper Int -> V.Vector Word8 -> Vector Int #-}
+{-# SPECIALIZE parPhase1 :: Zipper Int -> S.Vector Word8 -> Vector Int #-}
 
 -- Each phase needs the squared eucilidean distance from the previous
 -- phase.
@@ -139,33 +148,69 @@ sedt dims p = go (left dim0) (phase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
         go (Just dim) sedt' = go (left dim) (phaseN dim sedt')
-{-# INLINE sedt #-}
+{-# SPECIALIZE sedt :: [Int] -> Vector Int -> Vector Int #-}
+{-# SPECIALIZE sedt :: [Int] -> Vector Word8 -> Vector Int #-}
+{-# SPECIALIZE sedt :: [Int] -> S.Vector Int -> Vector Int #-}
+{-# SPECIALIZE sedt :: [Int] -> S.Vector Word8 -> Vector Int #-}
 
 -- |Compute the Euclidean distance transform of an N-dimensional
 -- array. Dimensions given as [width,height,depth...]. The left-most
 -- dimension is the inner-most. For an array representing a 2D
 -- collection in row-major format, we would give [width,height] or
 -- [columns,rows].
-edt :: (Integral a, Floating b, G.Vector v a, G.Vector v b, G.Vector v Int)
-    => [Int] -> v a -> v b
+edt :: (Integral a, Floating b, G.Vector v1 a, G.Vector v2 b, G.Vector v2 Int)
+    => [Int] -> v1 a -> v2 b
 edt dims v = G.map aux . G.convert $ sedt dims v
   where aux = sqrt . fromIntegral -- . min 80
-{-# INLINE edt #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Int -> Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Int -> Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Word8 -> Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Word8 -> Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Int -> S.Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Int -> S.Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Word8 -> S.Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> Vector Word8 -> S.Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Int -> Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Int -> Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Word8 -> Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Word8 -> Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Int -> S.Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Int -> S.Vector Double #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Word8 -> S.Vector Float #-}
+{-# SPECIALIZE edt :: [Int] -> S.Vector Word8 -> S.Vector Double #-}
 
 -- |Compute the Euclidean distance transform of an N-dimensional array
 -- using multiple processor cores. Dimensions given as
 -- [width,height,depth...]. The left-most dimension is the
 -- inner-most. For an array representing a 2D collection in row-major
 -- format, we would give [width,height] or [columns,rows].
-edtPar :: (Integral a, Floating b, G.Vector v a, G.Vector v b, G.Vector v Int)
-       => [Int] -> v a -> v b
+edtPar :: (Integral a, Floating b, G.Vector v1 a, G.Vector v2 b, G.Vector v2 Int)
+       => [Int] -> v1 a -> v2 b
 edtPar dims v = G.map aux . G.convert $ sedtPar dims v
   where aux = sqrt . fromIntegral -- . min 80
-{-# INLINE edtPar #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Int -> Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Int -> Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Word8 -> Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Word8 -> Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Int -> S.Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Int -> S.Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Word8 -> S.Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> Vector Word8 -> S.Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Int -> Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Int -> Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Word8 -> Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Word8 -> Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Int -> S.Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Int -> S.Vector Double #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Word8 -> S.Vector Float #-}
+{-# SPECIALIZE edtPar :: [Int] -> S.Vector Word8 -> S.Vector Double #-}
 
 sedtPar :: (G.Vector v a, Integral a) => [Int] -> v a -> Vector Int
 sedtPar dims p = go (left dim0) (parPhase1 dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
         go (Just dim) sedt' = go (left dim) (parPhaseN dim sedt')
-{-# INLINE sedtPar #-}
+{-# SPECIALIZE sedtPar :: [Int] -> Vector Int -> Vector Int #-}
+{-# SPECIALIZE sedtPar :: [Int] -> Vector Word8 -> Vector Int #-}
+{-# SPECIALIZE sedtPar :: [Int] -> S.Vector Int -> Vector Int #-}
+{-# SPECIALIZE sedtPar :: [Int] -> S.Vector Word8 -> Vector Int #-}
