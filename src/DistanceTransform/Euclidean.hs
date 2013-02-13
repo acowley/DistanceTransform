@@ -1,8 +1,8 @@
 {-# LANGUAGE BangPatterns, FlexibleContexts, ScopedTypeVariables, 
              RankNTypes #-}
 -- |N-dimensional parallel Euclidean distance transform using an
--- approach derived from: Meijster et al., /"A general algorithm for
--- computing distance transforms in linear time."/
+-- approach derived from: Meijster et al., /"A general algorithm for/
+-- /computing distance transforms in linear time."/
 module DistanceTransform.Euclidean (edt, edtPar, sedt, sedtPar) where
 import Control.Monad (when)
 import Control.Monad.ST (ST)
