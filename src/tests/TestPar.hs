@@ -19,7 +19,7 @@ main = do putStr "I am sane, true or false? "
           defaultMain [ bench "serial" $ whnf (edt' dims) testData
                       , bench "parallel" $ whnf (edtPar' dims) testData ]
   where dims = replicate 3 testRes
-        edt' :: [Int] -> V.Vector Int -> U.Vector Float
+        edt' :: [Int] -> V.Vector Int -> V.Vector Float
         edt' = edt
-        edtPar' :: [Int] -> V.Vector Int -> U.Vector Float
+        edtPar' :: [Int] -> V.Vector Int -> V.Vector Float
         edtPar' = edtPar
