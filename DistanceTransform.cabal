@@ -12,13 +12,26 @@ copyright:           (c) Anthony Cowley 2012,2013
 category:            Math
 build-type:          Simple
 cabal-version:       >=1.10
+extra-source-files:  src/tests/Main.hs src/tests/TestPar.hs
+
+source-repository head
+  type: git
+  location: git://github.com/acowley/DistanceTransform.git
 
 library
   exposed-modules:     DistanceTransform.Euclidean,
                        DistanceTransform.Internal.Indexer
-                       
-  -- other-modules:       
   build-depends:       base >=4.6 && < 5, vector >=0.9, linear >=0.2, primitive
   hs-source-dirs:      src
   default-language:    Haskell2010
   ghc-options:         -O2 -Wall
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  hs-source-dirs: src/tests
+  main-is: Main.hs
+  ghc-options: -Wall -O2 -threaded -rtsopts
+  default-language: Haskell2010
+  build-depends: base >= 4.5 && < 5,
+                 test-framework, test-framework-hunit, HUnit,
+                 vector, DistanceTransform
