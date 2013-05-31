@@ -9,8 +9,8 @@ import Data.Maybe (fromMaybe)
 -- | We use a zipper on list to walk over dimensions of an array.
 data Zipper a = Zip [a] a [a]
 
--- | Create a 'Zipper' from a non-empty list, with the cursor on the
--- leftmost element.
+-- | Create a 'Zipper' from a focal element, and a list of rightward
+-- siblings.
 toZipper :: a -> [a] -> Zipper a
 toZipper = Zip []
 
