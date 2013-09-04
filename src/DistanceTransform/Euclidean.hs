@@ -20,16 +20,29 @@ import DistanceTransform.Internal.Indexer
 -- indicated dimension.
 type LoopRunner = forall s. Zipper Int -> (Int -> Int -> ST s ()) -> ST s ()
 
+-- FIXME: To accomodate impenetrable barriers, it will be easiest to
+-- use a proper sum type for the value at each cell of the input
+-- array. Alternatively, we can identify a reserved value
+-- (e.g. maxBound) to use for such cells. This information must be
+-- checked in phaseN as well as phase1 so as not to sweep through
+-- barriers. Finally, to make a useful path planning map, each phase
+-- must be iterated until the map does not change.
+
 -- This constructs Meijster's G function.
-phase1 :: (Integral a, Vector v a, Vector v Int)
+phase1 :: (Bounded a, Integral a, Vector v a, Vector v Int)
        => LoopRunner -> Zipper Int -> v a -> v Int
 phase1 runLoop dim p = 
   V.map (\x -> x*x) $ V.create $
    do v <- VM.new (product $ fromZipper dim)
-      let pullRight !i = if p ! i == 0
-                         then VM.unsafeWrite v i 0
-                         else VM.unsafeRead v (i-step) >>= 
-                                (VM.unsafeWrite v i $!) . (1+)
+      -- let pullRight !i = if p ! i == 0
+      --                    then VM.unsafeWrite v i 0
+      --                    else VM.unsafeRead v (i-step) >>= 
+      --                           (VM.unsafeWrite v i $!) . (1+)
+      let pullRight !i
+            | px == 0 = VM.unsafeWrite v i 0
+            | px == fromIntegral (zipSum dim) = VM.unsafeWrite v i (zipSum dim)
+            | otherwise = VM.unsafeRead v (i-step) >>= (VM.unsafeWrite v i $!) . (1+)
+              where px = p ! i
           pushLeft !i = do !prev <- VM.unsafeRead v (i+step)
                            !curr <- VM.unsafeRead v i
                            when (prev < curr) 
@@ -139,7 +152,8 @@ phaseNRow m sedt' v offset step =
 -- N-dimensional array. Dimensions given as
 -- @[width,height,depth...]@. The left-most dimension is the
 -- inner-most.
-sedt :: (Vector v a, Vector v Int, Integral a) => [Int] -> v a -> v Int
+sedt :: (Vector v a, Vector v Int, Bounded a, Integral a)
+     => [Int] -> v a -> v Int
 sedt dims p = go (left dim0) (phase1 zipFoldMAsYouDo dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
@@ -154,7 +168,7 @@ sedt dims p = go (left dim0) (phase1 zipFoldMAsYouDo dim0 p)
 -- dimension is the inner-most. For an array representing a 2D
 -- collection in row-major format, we would give @[width,height]@ or
 -- @[columns,rows]@.
-edt :: (Integral a, Floating b, Vector v a, Vector v b, Vector v Int)
+edt :: (Bounded a, Integral a, Floating b, Vector v a, Vector v b, Vector v Int)
     => [Int] -> v a -> v b
 edt dims v = V.map aux $ sedt dims v
   where aux = sqrt . fromIntegral
@@ -172,7 +186,7 @@ edt dims v = V.map aux $ sedt dims v
 -- @[width,height,depth...]@. The left-most dimension is the
 -- inner-most. For an array representing a 2D collection in row-major
 -- format, we would give @[width,height]@ or @[columns,rows]@.
-edtPar :: (Integral a, Floating b, Vector v a, Vector v b, Vector v Int)
+edtPar :: (Bounded a, Integral a, Floating b, Vector v a, Vector v b, Vector v Int)
        => [Int] -> v a -> v b
 edtPar dims v = V.map aux $ sedtPar dims v
   where aux = sqrt . fromIntegral
@@ -189,7 +203,8 @@ edtPar dims v = V.map aux $ sedtPar dims v
 -- N-dimensional array using multiple processor cores. Dimensions
 -- given as @[width,height,depth...]@. The left-most dimension is the
 -- inner-most.
-sedtPar :: (Vector v a, Vector v Int, Integral a) => [Int] -> v a -> v Int
+sedtPar :: (Vector v a, Vector v Int, Bounded a, Integral a)
+        => [Int] -> v a -> v Int
 sedtPar dims p = go (left dim0) (phase1 parZipFoldMAsYouDo' dim0 p)
   where dim0 = rightmost . unsafeToZipper $ reverse dims
         go Nothing sedt' = sedt'
